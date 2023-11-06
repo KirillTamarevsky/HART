@@ -78,5 +78,11 @@ namespace m4dHART
             int year = bytes[2] + 1900;
             return new DateTime(year, month, day);
         }
+        public static TimeSpan To_Hart_Time (this byte[] bytes)
+        {
+            if (bytes.Length != 4) return TimeSpan.FromMilliseconds(1);
+            var bytesToInt = BitConverter.ToUInt32(bytes.Reverse().ToArray(), 0);
+            return TimeSpan.FromMilliseconds(bytesToInt/32);
+        }
     }
 }
