@@ -1,21 +1,8 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.IO;
-using System.IO.Ports;
-using System.Linq;
-using System.Net.NetworkInformation;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Timers;
-using log4net;
-using log4net.Repository.Hierarchy;
-using log4net.Util;
+﻿using log4net;
 using m4dHART._1_PhysicalLinkLayer;
 using m4dHART._7_ApplicationLayer.CommandResponses;
 using m4dHART._7_ApplicationLayer.Commands;
+using System.IO.Ports;
 
 namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
 {
@@ -196,12 +183,12 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
             closing = true;
             try
             {
+                Port.DataReceived -= OnDataReceived;
+
                 mainloopCTS.Cancel();
                 mainloop.Join();
 
                 TRANSMITconfirm.WaitOne();
-
-                Port.DataReceived -= OnDataReceived;
 
                 Port.Close();
 
@@ -213,50 +200,54 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
                 Log.Warn("Cannot close port.", exception);
             }
         }
-
+        object sendingLock = new object();
         public CommandResponseBase Send(int preambleLength, IAddress address, HARTCommand hartCommand)
         {
-
-            var hartDatagram = new HARTDatagram(preambleLength, 2, address.ToSTXAddress(MasterAddress), hartCommand.Number, new byte[0], hartCommand.Data);
-
-            if (closing)
-            {
-                return null;
-            }
-            _lastReceivedResponse = null;
-            if (Port.IsOpen)
+            lock (sendingLock)
             {
 
-                try
+
+                var hartDatagram = new HARTDatagram(preambleLength, 2, address.ToSTXAddress(MasterAddress), hartCommand.Number, new byte[0], hartCommand.Data);
+
+                if (closing)
                 {
-                    //_parser.Reset();
-
-                    TRANSMITconfirm.Reset();
-                    dataGramToTransmit = hartDatagram;
-                    MSG_PENDING = true;
-                    Log.Info($"TRANSMIT.request");
-                    retriesCOUNT = 0;
-
-                    TRANSMITconfirm.WaitOne();
-                    var responseDataGram = _lastReceivedResponse;
-                    _lastReceivedResponse = null;
-                    dataGramToTransmit = null;
-                    Log.Info("TRANSMIT.confirmed");
-                    if (responseDataGram != null)
-                    {
-                        var responseCommandResult = hartCommand.ToCommandResult(responseDataGram);
-                        Log.Debug($"Confirmed {responseCommandResult}");
-                        return responseCommandResult;
-                    }
-                }
-                catch (Exception exception)
-                {
-                    Log.Error("Unexpected exception!", exception);
-
                     return null;
                 }
+                _lastReceivedResponse = null;
+                if (Port.IsOpen)
+                {
+
+                    try
+                    {
+                        //_parser.Reset();
+
+                        TRANSMITconfirm.Reset();
+                        dataGramToTransmit = hartDatagram;
+                        MSG_PENDING = true;
+                        Log.Info($"TRANSMIT.request");
+                        retriesCOUNT = 0;
+
+                        TRANSMITconfirm.WaitOne();
+                        var responseDataGram = _lastReceivedResponse;
+                        _lastReceivedResponse = null;
+                        dataGramToTransmit = null;
+                        Log.Info("TRANSMIT.confirmed");
+                        if (responseDataGram != null)
+                        {
+                            var responseCommandResult = hartCommand.ToCommandResult(responseDataGram);
+                            Log.Debug($"Confirmed {responseCommandResult}");
+                            return responseCommandResult;
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        Log.Error("Unexpected exception!", exception);
+
+                        return null;
+                    }
+                }
+                return null;
             }
-            return null;
         }
         public CommandResponseBase SendZeroCommand()
         {
@@ -293,7 +284,7 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
             {
                 RCV_MSG = RCV_MSG_state.Receiving;
             }
-            
+
             //Log.Debug($"Received data from {Port.PortName}: {BitConverter.ToString(new byte[] { receivedByte })} - {parserState}");
 
             bool rcv_success = _parser.CurrentByteType == HartCommandParser.ReceiveState.CorrectPDUReceived;
@@ -475,7 +466,15 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
                                     cyclicIndicate(lrdg);
                                     CurrentState = MasterState.ENABLED;
                                 }
-                                if (lrdg.FrameType == FrameType.STX && !BURST
+
+                                if (lrdg.FrameType == FrameType.ACK & lrdg.Address._masterAddress != MasterAddress && !BURST)
+                                {
+                                    startTimer("RCV_MSG == OACK && ~BURST, HOLD", ONE_BYTE_TRANSMISSION_TIME * HOLD);
+                                    cyclicIndicate(lrdg);
+                                    CurrentState = MasterState.ENABLED;
+                                }
+
+                                if ((lrdg.FrameType == FrameType.STX && !BURST)
                                     | (lrdg.FrameType == FrameType.ACK & lrdg.Address._masterAddress != MasterAddress && BURST))
                                 {
                                     startTimer("((RCV_MSG == STX) && !BURST) || ((RCV_MSG == OACK) && BURST) RT1", ONE_BYTE_TRANSMISSION_TIME * RT1);
