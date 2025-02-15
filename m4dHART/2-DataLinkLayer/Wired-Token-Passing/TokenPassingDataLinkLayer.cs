@@ -36,7 +36,7 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
         public MasterAddress MasterAddress { get; set; } = MasterAddress.Primary;
         private HartCommandParser _parser { get; } = new HartCommandParser();
         private ManualResetEvent TRANSMITconfirm { get; set; } = new ManualResetEvent(false);
-        private HARTDatagram _lastReceivedResponse { get; set; }
+        private HARTDatagram? _lastReceivedResponse { get; set; }
         //private bool frameReceived { get; set; }
         private TRANSMITResult TransmitResult
         {
@@ -65,7 +65,7 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
                 }
             }
         }
-        private HARTDatagram dataGramToTransmit
+        private HARTDatagram? dataGramToTransmit
         {
             get;
             set;
@@ -93,7 +93,7 @@ namespace m4dHART._2_DataLinkLayer.Wired_Token_Passing
             }
         }
 
-        public event Action<CommandResponseBase> BACKReceived;
+        public event Action<CommandResponseBase>? BACKReceived;
 
         /// <summary>
         /// Gets or sets the max number of retries.
